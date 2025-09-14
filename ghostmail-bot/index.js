@@ -110,18 +110,39 @@ function splitMessage(text, maxLength = 4000) {
     return chunks;
 }
 
+// Common headers to bypass Cloudflare protection
+const getHeaders = () => ({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'cross-site',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
+});
+
 // Ghostmail API functions
 class GhostmailAPI {
     static async getDomains() {
         try {
             console.log(`🔍 Making domains request to: ${BASE_URL}/domains/${API_KEY}`);
-            const response = await axios.get(`${BASE_URL}/domains/${API_KEY}`);
+            const response = await axios.get(`${BASE_URL}/domains/${API_KEY}`, {
+                headers: getHeaders(),
+                timeout: 10000,
+                validateStatus: function (status) {
+                    return status < 500; // Accept any status less than 500
+                }
+            });
             console.log('✅ Domains response:', response.status, response.data);
             return response.data;
         } catch (error) {
             console.error('❌ Error fetching domains:', error.message);
             console.error('📊 Response status:', error.response?.status);
-            console.error('📄 Response data:', error.response?.data);
+            console.error('📄 Response data:', error.response?.data?.slice ? error.response.data.slice(0, 200) + '...' : error.response?.data);
             console.error('🔗 Request URL:', `${BASE_URL}/domains/${API_KEY}`);
             return null;
         }
@@ -130,13 +151,19 @@ class GhostmailAPI {
     static async createEmail() {
         try {
             console.log(`🔍 Making create email request to: ${BASE_URL}/email/create/${API_KEY}`);
-            const response = await axios.post(`${BASE_URL}/email/create/${API_KEY}`);
+            const response = await axios.post(`${BASE_URL}/email/create/${API_KEY}`, {}, {
+                headers: getHeaders(),
+                timeout: 10000,
+                validateStatus: function (status) {
+                    return status < 500; // Accept any status less than 500
+                }
+            });
             console.log('✅ Create email response:', response.status, response.data);
             return response.data;
         } catch (error) {
             console.error('❌ Error creating email:', error.message);
             console.error('📊 Response status:', error.response?.status);
-            console.error('📄 Response data:', error.response?.data);
+            console.error('📄 Response data:', error.response?.data?.slice ? error.response.data.slice(0, 200) + '...' : error.response?.data);
             console.error('🔗 Request URL:', `${BASE_URL}/email/create/${API_KEY}`);
             return null;
         }
@@ -144,7 +171,10 @@ class GhostmailAPI {
 
     static async deleteEmail(emailToken) {
         try {
-            const response = await axios.post(`${BASE_URL}/email/delete/${emailToken}/${API_KEY}`);
+            const response = await axios.post(`${BASE_URL}/email/delete/${emailToken}/${API_KEY}`, {}, {
+                headers: getHeaders(),
+                timeout: 10000
+            });
             return response.data;
         } catch (error) {
             console.error('Error deleting email:', error.message);
@@ -154,7 +184,10 @@ class GhostmailAPI {
 
     static async getMessages(emailToken) {
         try {
-            const response = await axios.get(`${BASE_URL}/messages/${emailToken}/${API_KEY}`);
+            const response = await axios.get(`${BASE_URL}/messages/${emailToken}/${API_KEY}`, {
+                headers: getHeaders(),
+                timeout: 10000
+            });
             return response.data;
         } catch (error) {
             console.error('Error fetching messages:', error.message);
@@ -164,7 +197,10 @@ class GhostmailAPI {
 
     static async getMessage(messageId) {
         try {
-            const response = await axios.get(`${BASE_URL}/message/${messageId}/${API_KEY}`);
+            const response = await axios.get(`${BASE_URL}/message/${messageId}/${API_KEY}`, {
+                headers: getHeaders(),
+                timeout: 10000
+            });
             return response.data;
         } catch (error) {
             console.error('Error fetching message:', error.message);
@@ -174,7 +210,10 @@ class GhostmailAPI {
 
     static async deleteMessage(messageId) {
         try {
-            const response = await axios.post(`${BASE_URL}/message/delete/${messageId}/${API_KEY}`);
+            const response = await axios.post(`${BASE_URL}/message/delete/${messageId}/${API_KEY}`, {}, {
+                headers: getHeaders(),
+                timeout: 10000
+            });
             return response.data;
         } catch (error) {
             console.error('Error deleting message:', error.message);
