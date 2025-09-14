@@ -194,16 +194,37 @@ async function makeRequest(method, url, data = null, retries = 3) {
     }
 }
 
-// Ghostmail API functions
+// Ghostmail API functions with fallback endpoints
 class GhostmailAPI {
     static async getDomains() {
         console.log(`🌐 Fetching domains from: ${BASE_URL}/domains/${API_KEY}`);
-        return await makeRequest('GET', `${BASE_URL}/domains/${API_KEY}`);
+        let result = await makeRequest('GET', `${BASE_URL}/domains/${API_KEY}`);
+        
+        // Try alternative endpoint if first fails
+        if (result?.status === 'error') {
+            console.log(`🔄 Trying alternative domains endpoint...`);
+            result = await makeRequest('GET', `${BASE_URL}/api/domains/${API_KEY}`);
+        }
+        
+        return result;
     }
 
     static async createEmail() {
         console.log(`📧 Creating email via: ${BASE_URL}/email/create/${API_KEY}`);
-        return await makeRequest('POST', `${BASE_URL}/email/create/${API_KEY}`);
+        let result = await makeRequest('POST', `${BASE_URL}/email/create/${API_KEY}`);
+        
+        // Try alternative endpoints if first fails
+        if (result?.status === 'error') {
+            console.log(`🔄 Trying alternative create endpoint...`);
+            result = await makeRequest('POST', `${BASE_URL}/api/email/create/${API_KEY}`);
+        }
+        
+        if (result?.status === 'error') {
+            console.log(`🔄 Trying GET method for create...`);
+            result = await makeRequest('GET', `${BASE_URL}/email/create/${API_KEY}`);
+        }
+        
+        return result;
     }
 
     static async deleteEmail(emailToken) {
@@ -257,7 +278,7 @@ Ready to get started? Use /create to generate your first temporary email! 📧`;
 }
 
 async function handleCreateEmail(chatId) {
-    await bot.sendMessage(chatId, '⏳ Creating your temporary email...');
+    const loadingMessage = await bot.sendMessage(chatId, '⏳ Creating your temporary email...');
     
     const result = await GhostmailAPI.createEmail();
     
@@ -288,7 +309,32 @@ You can now use this email for registrations.`;
         
         await bot.sendMessage(chatId, message, options);
     } else {
-        await bot.sendMessage(chatId, '❌ Failed to create email. Please try again.');
+        const errorMessage = `❌ **Unable to create email at the moment**
+
+This might be due to:
+• High server load on the email service
+• Temporary API restrictions  
+• Network connectivity issues
+
+**What you can try:**
+• Wait a few minutes and try again
+• Use the /domains command first to check service availability
+• Contact support if the issue persists
+
+The service may be experiencing high traffic or temporary restrictions.`;
+
+        const retryOptions = {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🔄 Try Again', callback_data: 'create_email' }],
+                    [{ text: '🌐 Check Domains', callback_data: 'view_domains' }],
+                    [{ text: '🏠 Main Menu', callback_data: 'start' }]
+                ]
+            }
+        };
+        
+        await bot.sendMessage(chatId, errorMessage, retryOptions);
     }
 }
 
@@ -417,6 +463,8 @@ async function handleCheckMessages(chatId) {
 }
 
 async function handleViewDomains(chatId) {
+    await bot.sendMessage(chatId, '🌐 Checking available domains...');
+    
     const result = await GhostmailAPI.getDomains();
     
     if (result && result.status === 'success') {
@@ -427,9 +475,40 @@ async function handleViewDomains(chatId) {
             domainText += `${index + 1}. ${domain}\n`;
         });
         
-        await bot.sendMessage(chatId, domainText, { parse_mode: 'Markdown' });
+        domainText += '\n✅ **Service is operational**\nYou can now create temporary emails using these domains.';
+        
+        const options = {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '📧 Create Email Now', callback_data: 'create_email' }],
+                    [{ text: '🏠 Main Menu', callback_data: 'start' }]
+                ]
+            }
+        };
+        
+        await bot.sendMessage(chatId, domainText, options);
     } else {
-        await bot.sendMessage(chatId, '❌ Failed to fetch domains. Please try again.');
+        const errorMessage = `❌ **Cannot connect to email service**
+
+The temporary email service appears to be unavailable right now. This could be due to:
+• Server maintenance
+• High traffic load
+• Network connectivity issues
+
+**Try again in a few minutes** or check the service status.`;
+
+        const options = {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🔄 Retry', callback_data: 'view_domains' }],
+                    [{ text: '🏠 Main Menu', callback_data: 'start' }]
+                ]
+            }
+        };
+        
+        await bot.sendMessage(chatId, errorMessage, options);
     }
 }
 
@@ -522,6 +601,9 @@ app.post(`/webhook/${token}`, async (req, res) => {
             await bot.answerCallbackQuery(callbackQuery.id);
             
             switch (data) {
+                case 'start':
+                    await handleStart(chatId);
+                    break;
                 case 'create_email':
                     await handleCreateEmail(chatId);
                     break;
