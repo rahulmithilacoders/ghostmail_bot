@@ -443,6 +443,7 @@ async function handleDeleteMessage(chatId, messageId) {
 // Webhook endpoint
 app.post(`/webhook/${token}`, async (req, res) => {
     const update = req.body;
+    console.log('📥 Received webhook update:', JSON.stringify(update, null, 2));
     
     try {
         // Handle regular messages
@@ -450,6 +451,8 @@ app.post(`/webhook/${token}`, async (req, res) => {
             const message = update.message;
             const chatId = message.chat.id;
             const text = message.text;
+
+            console.log(`Processing command: ${text} from chat: ${chatId}`);
 
             if (text === '/start' || text === '/help') {
                 await handleStart(chatId);
@@ -469,6 +472,8 @@ app.post(`/webhook/${token}`, async (req, res) => {
             const callbackQuery = update.callback_query;
             const chatId = callbackQuery.message.chat.id;
             const data = callbackQuery.data;
+            
+            console.log(`Processing callback: ${data} from chat: ${chatId}`);
             
             await bot.answerCallbackQuery(callbackQuery.id);
             
@@ -501,14 +506,19 @@ app.post(`/webhook/${token}`, async (req, res) => {
     }
 });
 
-// Health check endpoint
+// Health check endpoints
 app.get('/', (req, res) => {
     res.send('GhostMail Bot is running!');
 });
 
-// Health check for render
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Debug all requests
+app.use((req, res, next) => {
+    console.log(`📥 ${req.method} ${req.path} - ${new Date().toISOString()}`);
+    next();
 });
 
 const PORT = process.env.PORT || 3000;
@@ -525,7 +535,6 @@ app.listen(PORT, '0.0.0.0', () => {
             console.error('❌ Failed to set webhook:', error);
         });
     } else {
-        // For local development or if RENDER_EXTERNAL_URL is not set
         console.log('⚠️ RENDER_EXTERNAL_URL not set, webhook not configured');
     }
 });
