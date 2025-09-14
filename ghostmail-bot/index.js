@@ -1,6 +1,8 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const { CookieJar } = require('tough-cookie');
+const { wrapper } = require('axios-cookiejar-support');
 require('dotenv').config();
 
 const app = express();
@@ -21,6 +23,13 @@ console.log('🖥️  RENDER_EXTERNAL_URL:', process.env.RENDER_EXTERNAL_URL || 
 
 // Store user sessions (in production, consider using a database)
 const userSessions = new Map();
+
+// Create axios instance with cookie support
+const cookieJar = new CookieJar();
+const axiosWithCookies = wrapper(axios.create({
+    jar: cookieJar,
+    withCredentials: true
+}));
 
 // Utility function to strip HTML tags and format text safely for Telegram
 function stripHtmlAndFormat(html) {
@@ -110,115 +119,111 @@ function splitMessage(text, maxLength = 4000) {
     return chunks;
 }
 
-// Common headers to bypass Cloudflare protection
-const getHeaders = () => ({
+// Advanced headers to bypass Cloudflare protection
+const getHeaders = (referer = 'https://ghostmail.one/') => ({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
+    'Referer': referer,
+    'Origin': 'https://ghostmail.one',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'cross-site',
+    'Sec-Fetch-Site': 'same-origin',
+    'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'DNT': '1',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache'
 });
 
+// Function to add random delays
+const randomDelay = (min = 1000, max = 3000) => {
+    return new Promise(resolve => setTimeout(resolve, Math.random() * (max - min) + min));
+};
+
+// Function to make a request with retries and delays  
+async function makeRequest(method, url, data = null, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            console.log(`🔄 Attempt ${attempt}/${retries} for ${method.toUpperCase()} ${url}`);
+            
+            // Add delay before request (except first attempt)
+            if (attempt > 1) {
+                await randomDelay(2000, 5000);
+            }
+            
+            const config = {
+                method,
+                url,
+                headers: getHeaders(),
+                timeout: 15000,
+                maxRedirects: 5,
+                validateStatus: function (status) {
+                    return status < 500; // Accept any status less than 500
+                }
+            };
+            
+            if (data && method.toLowerCase() !== 'get') {
+                config.data = data;
+            }
+            
+            const response = await axiosWithCookies(config);
+            
+            // If we get 403, it might be Cloudflare challenge
+            if (response.status === 403) {
+                console.log(`⚠️ Got 403 on attempt ${attempt}, will retry...`);
+                if (attempt === retries) {
+                    return { status: 'error', message: 'Cloudflare protection blocking requests' };
+                }
+                continue;
+            }
+            
+            // Success - return the response data
+            console.log(`✅ Success on attempt ${attempt}: ${response.status}`);
+            return response.data;
+            
+        } catch (error) {
+            console.log(`❌ Attempt ${attempt} failed:`, error.message);
+            if (attempt === retries) {
+                return { status: 'error', message: error.message };
+            }
+        }
+    }
+}
+
 // Ghostmail API functions
 class GhostmailAPI {
     static async getDomains() {
-        try {
-            console.log(`🔍 Making domains request to: ${BASE_URL}/domains/${API_KEY}`);
-            const response = await axios.get(`${BASE_URL}/domains/${API_KEY}`, {
-                headers: getHeaders(),
-                timeout: 10000,
-                validateStatus: function (status) {
-                    return status < 500; // Accept any status less than 500
-                }
-            });
-            console.log('✅ Domains response:', response.status, response.data);
-            return response.data;
-        } catch (error) {
-            console.error('❌ Error fetching domains:', error.message);
-            console.error('📊 Response status:', error.response?.status);
-            console.error('📄 Response data:', error.response?.data?.slice ? error.response.data.slice(0, 200) + '...' : error.response?.data);
-            console.error('🔗 Request URL:', `${BASE_URL}/domains/${API_KEY}`);
-            return null;
-        }
+        console.log(`🌐 Fetching domains from: ${BASE_URL}/domains/${API_KEY}`);
+        return await makeRequest('GET', `${BASE_URL}/domains/${API_KEY}`);
     }
 
     static async createEmail() {
-        try {
-            console.log(`🔍 Making create email request to: ${BASE_URL}/email/create/${API_KEY}`);
-            const response = await axios.post(`${BASE_URL}/email/create/${API_KEY}`, {}, {
-                headers: getHeaders(),
-                timeout: 10000,
-                validateStatus: function (status) {
-                    return status < 500; // Accept any status less than 500
-                }
-            });
-            console.log('✅ Create email response:', response.status, response.data);
-            return response.data;
-        } catch (error) {
-            console.error('❌ Error creating email:', error.message);
-            console.error('📊 Response status:', error.response?.status);
-            console.error('📄 Response data:', error.response?.data?.slice ? error.response.data.slice(0, 200) + '...' : error.response?.data);
-            console.error('🔗 Request URL:', `${BASE_URL}/email/create/${API_KEY}`);
-            return null;
-        }
+        console.log(`📧 Creating email via: ${BASE_URL}/email/create/${API_KEY}`);
+        return await makeRequest('POST', `${BASE_URL}/email/create/${API_KEY}`);
     }
 
     static async deleteEmail(emailToken) {
-        try {
-            const response = await axios.post(`${BASE_URL}/email/delete/${emailToken}/${API_KEY}`, {}, {
-                headers: getHeaders(),
-                timeout: 10000
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error deleting email:', error.message);
-            return null;
-        }
+        console.log(`🗑️ Deleting email via: ${BASE_URL}/email/delete/${emailToken}/${API_KEY}`);
+        return await makeRequest('POST', `${BASE_URL}/email/delete/${emailToken}/${API_KEY}`);
     }
 
     static async getMessages(emailToken) {
-        try {
-            const response = await axios.get(`${BASE_URL}/messages/${emailToken}/${API_KEY}`, {
-                headers: getHeaders(),
-                timeout: 10000
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching messages:', error.message);
-            return null;
-        }
+        console.log(`📬 Getting messages via: ${BASE_URL}/messages/${emailToken}/${API_KEY}`);
+        return await makeRequest('GET', `${BASE_URL}/messages/${emailToken}/${API_KEY}`);
     }
 
     static async getMessage(messageId) {
-        try {
-            const response = await axios.get(`${BASE_URL}/message/${messageId}/${API_KEY}`, {
-                headers: getHeaders(),
-                timeout: 10000
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching message:', error.message);
-            return null;
-        }
+        console.log(`📄 Getting message via: ${BASE_URL}/message/${messageId}/${API_KEY}`);
+        return await makeRequest('GET', `${BASE_URL}/message/${messageId}/${API_KEY}`);
     }
 
     static async deleteMessage(messageId) {
-        try {
-            const response = await axios.post(`${BASE_URL}/message/delete/${messageId}/${API_KEY}`, {}, {
-                headers: getHeaders(),
-                timeout: 10000
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error deleting message:', error.message);
-            return null;
-        }
+        console.log(`🗑️ Deleting message via: ${BASE_URL}/message/delete/${messageId}/${API_KEY}`);
+        return await makeRequest('POST', `${BASE_URL}/message/delete/${messageId}/${API_KEY}`);
     }
 }
 
