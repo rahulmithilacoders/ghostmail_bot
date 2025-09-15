@@ -28,9 +28,7 @@ npm install
 
 3. Create a `.env` file in the root directory:
 ```env
-BOT_TOKEN=8473632705:AAERjB2sxFxD_oc7U4GjQbxsCtDT3E1feIk
-GHOSTMAIL_API_KEY=ubWVu8ElinibrQtB63GXSibL5Z3Ti1FM3T2FeXPa
-GHOSTMAIL_BASE_URL=https://ghostmail.one/api
+
 ```
 
 ### 3. Running the Bot
